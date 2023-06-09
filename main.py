@@ -1,4 +1,6 @@
 import os
+import asyncio
+import time
 import boto3
 import discord
 from discord import app_commands
@@ -11,10 +13,11 @@ client = discord.Client(intents=discord.Intents.default())
 aws_access_key_id = os.environ['ACCESS_KEY']
 aws_secret_access_key = os.environ['SECRET_ACCESS_KEY']
 
-ec2 = boto3.client('ec2',
-                   region_name='ap-southeast-2',
-                   aws_access_key_id=aws_access_key_id,
-                   aws_secret_access_key=aws_secret_access_key)
+ec2 = boto3.resource('ec2',
+                     region_name='ap-southeast-2',
+                     aws_access_key_id=aws_access_key_id,
+                     aws_secret_access_key=aws_secret_access_key)
+instance = ec2.Instance(INSTANCE_ID)
 tree = app_commands.CommandTree(client)
 
 
@@ -33,20 +36,34 @@ async def test_command(interaction: discord.Interaction):
 
 @tree.command(name="start", description="サーバーの起動")
 async def start_server(interaction: discord.Interaction):
-  response = ec2.start_instances(InstanceIds=[INSTANCE_ID])
-  data = ec2.describe_instances(
-    InstanceIds=[INSTANCE_ID]
-)
-  
-  ip = data['Reservations'][0]['Instances'][0]['PublicIpAddress']
-  print(response)
-  await interaction.response.send_message(f"start : {ip}")
+  await interaction.response.defer()
+  if instance.state['Name'] == 'stopped':
+    instance.start()
+    print("わっしょ1")
+
+    while instance.state['Name'] != 'running':
+      await asyncio.sleep(5)
+      instance.reload()
+
+    ip = instance.public_ip_address
+    print(ip)
+    #await interaction.channel.send(f"{instance.state['Name']}")
+    await interaction.followup.send(f"start : {ip}")
+
+    # 非同期処理が完了するまで待機する
+    await asyncio.sleep(5)  # 適切な待機時間を設定してください
+    print("処理が完了しました！")
+  else:
+    await interaction.followup.send("時間をおいてください")
+
 
 @tree.command(name="stop", description="サーバーの停止")
-async def start_server(interaction: discord.Interaction):
-  response = ec2.stop_instances(InstanceIds=[INSTANCE_ID])
+async def stop_server(interaction: discord.Interaction):
+  instance.stop()
 
-  await interaction.response.send_message(f"stop server")
+  print("STOP")
+  await interaction.response.send_message("stop server")
+
 
 # メッセージ受信時に動作する処理
 @client.event
@@ -61,3 +78,4 @@ try:
   client.run(TOKEN)
 except:
   os.system("kill 1")
+
